@@ -28,6 +28,9 @@ struct flb_stdout {
     int out_format;
     int json_date_format;
     flb_sds_t json_date_key;
+
+    flb_sds_t metric_namespace;
+    struct mk_list *metric_dimensions;
     struct flb_output_instance *ins;
 };
 
