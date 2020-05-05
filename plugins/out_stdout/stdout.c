@@ -33,6 +33,21 @@
 #define A_NEW_VALUE      "value"
 #define A_NEW_VALUE_LEN  5
 
+// Fluent Bit intermediate representation metric
+#define GAUGE 1
+#define COUNTER 2
+#define PERCENT "Percent"
+#define BYTES "Bytes"
+struct flb_ir_metric{
+    msgpack_object key;
+    msgpack_object value;
+    int metric_type;
+    const char *metric_unit;
+    struct flb_time timestamp;
+
+    struct mk_list _head;
+};
+
 static int cb_stdout_init(struct flb_output_instance *ins,
                           struct flb_config *config, void *data)
 {
@@ -118,37 +133,25 @@ static int cb_stdout_init(struct flb_output_instance *ins,
     return 0;
 }
 
-//Test
-#define GAUGE 1
-#define COUNTER 2
-struct flb_metric{
-    msgpack_object key;
-    msgpack_object value;
-    int metric_type;
-    const char *metric_unit;
-    struct flb_time timestamp;
-
-    struct mk_list _head;
-};
-
 static void cb_stdout_flush(const void *data, size_t bytes,
                             const char *tag, int tag_len,
                             struct flb_input_instance *i_ins,
                             void *out_context,
                             struct flb_config *config)
 {
-    printf("Input plugin name: ------------------------------%s\n",i_ins->p->name);
-    if(flb_sds_cmp(i_ins->p->name, "cpu", flb_sds_len(i_ins->p->name)) == 0) {
-        printf("Match\n");
-    }else{
-        printf("Doesn't match\n");
-    }
+    int ir_metric_type;
+    char *ir_metric_unit;
+    struct flb_time timestamp;
     if (strcmp(i_ins->p->name, "cpu")==0){
-        printf("Match\n");
-    }else {
-        printf("Not a match\n");
+        ir_metric_type = GAUGE;
+        ir_metric_unit = PERCENT;
+    }else if(strcmp(i_ins->p->name, "mem")==0){
+        ir_metric_type = GAUGE;
+        ir_metric_unit = BYTES;
+    }else{
+        printf("Incompatible metric input.\n");
+        return;
     }
-
 
     msgpack_unpacked result;
     size_t off = 0, cnt = 0;
@@ -168,84 +171,70 @@ static void cb_stdout_flush(const void *data, size_t bytes,
     int new_keys = 1;
     msgpack_sbuffer tmp_sbuf;
     msgpack_packer tmp_pck;
-    msgpack_unpacked result2;
+    // msgpack_unpacked result2;
     msgpack_object  *obj;
     msgpack_object_kv *kv;
 
-    struct flb_metric *metric;
+    struct flb_ir_metric *metric;
     struct mk_list *metric_temp;
     struct mk_list *metric_head;
-    struct mk_list flb_metrics;
-    // Construct a list
-    mk_list_init(&flb_metrics);
+    
 
     /* Create temporary msgpack buffer */
     msgpack_sbuffer_init(&tmp_sbuf);
     msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
 
     /* Iterate over each item */
-    msgpack_unpacked_init(&result2);
-    while (msgpack_unpack_next(&result2, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
+    msgpack_unpacked_init(&result);
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         /*
          * Each record is a msgpack array [timestamp, map] of the
          * timestamp and record map. We 'unpack' each record, and then re-pack
          * it with the new fields added.
          */
 
-        if (result2.data.type != MSGPACK_OBJECT_ARRAY) {
+        if (result.data.type != MSGPACK_OBJECT_ARRAY) {
             continue;
         }
 
         /* unpack the array of [timestamp, map] */
-        flb_time_pop_from_msgpack(&tm, &result2, &obj);
+        flb_time_pop_from_msgpack(&tm, &result, &obj);
 
         /* obj should now be the record map */
         if (obj->type != MSGPACK_OBJECT_MAP) {
             continue;
         }
 
-
-        /* re-pack the array into a new buffer */
-        msgpack_pack_array(&tmp_pck, 2);
-        flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
-
-        /* new record map size is old size + the new keys we will add */
-        total_records = obj->via.map.size + new_keys;
-        msgpack_pack_map(&tmp_pck, total_records);
+        struct mk_list flb_ir_metrics;
+        // Construct a list
+        mk_list_init(&flb_ir_metrics);
+        //printf("flb-ir-metric size: %d\n", mk_list_size(&flb_ir_metrics));
 
         /* iterate through the old record map and add it to the new buffer */
         kv = obj->via.map.ptr;
         for(i=0; i < obj->via.map.size; i++) {
-            // Test add
-            msgpack_object_print(stdout, (kv+i)->key);
-            printf("\n");
-            msgpack_object_print(stdout, (kv+i)->val);
-            printf("\n");
+            // Print key value pair
+            // msgpack_object_print(stdout, (kv+i)->key);
+            // printf("\n");
+            // msgpack_object_print(stdout, (kv+i)->val);
+            // printf("\n");
             
-            /*struct flb_metric temp_metric = {
-                .key = (kv+i)->key,
-                .value = (kv+i)->val,
-                .metric_type = GAUGE,
-                .timestamp = tm
-            };*/
-            metric = flb_malloc(sizeof(struct flb_metric));
+            metric = flb_malloc(sizeof(struct flb_ir_metric));
             metric->key = (kv+i)->key;
             metric->value = (kv+i)->val;
-            metric->metric_type = GAUGE;
-            metric->metric_unit = "Percent";
+            metric->metric_type = ir_metric_type;
+            metric->metric_unit = ir_metric_unit;
             metric->timestamp = tm;
             
-            mk_list_add(&metric->_head, &flb_metrics);
-
-            //msgpack_pack_object(&tmp_pck, (kv+i)->key);
-            //msgpack_pack_object(&tmp_pck, (kv+i)->val);
+            mk_list_add(&metric->_head, &flb_ir_metrics);
         }
 
-        printf("list size...............%d\n", mk_list_size(&flb_metrics));
-        /* Iterate through the list */
-        flb_info("\nIterating through flb_metric list.................\n");
-        mk_list_foreach_safe(metric_head, metric_temp, &flb_metrics) {
-            struct flb_metric *an_item = mk_list_entry(metric_head, struct flb_metric, _head);
+         //printf("flb-ir-metric size: %d\n", mk_list_size(&flb_ir_metrics));
+
+        /* Iterate through the flb-ir-metric list */
+        /*flb_info("\nIterating through flb_ir_metric list.................\n");
+        mk_list_foreach_safe(metric_head, metric_temp, &flb_ir_metrics) {
+            struct flb_ir_metric *an_item = mk_list_entry(metric_head, struct flb_ir_metric, _head);
             printf("{timestamp: ");
             printf("%ld", an_item->timestamp.tm.tv_sec); 
             printf("; key: ");
@@ -261,20 +250,69 @@ static void cb_stdout_flush(const void *data, size_t bytes,
             printf("; metric_unit: ");
             printf("%s", an_item->metric_unit);
             printf("}\n");
-        }
+        }*/
 
         /* msgpack::sbuffer is a simple buffer implementation. */
         msgpack_sbuffer sbuf_emf;
         msgpack_sbuffer_init(&sbuf_emf);
-
         
         /* serialize values into the buffer using msgpack_sbuffer_write callback function. */
         msgpack_packer packer_emf;
         msgpack_packer_init(&packer_emf, &sbuf_emf, msgpack_sbuffer_write);
 
-        msgpack_pack_map(&packer_emf, 7);
+        msgpack_pack_map(&packer_emf, (mk_list_size(&flb_ir_metrics)) + 1);
         
-        int m;
+        //Pack the aws map
+        msgpack_pack_str(&packer_emf, 4);
+        msgpack_pack_str_body(&packer_emf, "_aws", 4);
+
+        msgpack_pack_map(&packer_emf, 2);
+
+        msgpack_pack_str(&packer_emf, 9);
+        msgpack_pack_str_body(&packer_emf, "Timestamp", 9);
+        msgpack_pack_long_long(&packer_emf, tm.tm.tv_sec * 1000L);
+
+        msgpack_pack_str(&packer_emf, 17);
+        msgpack_pack_str_body(&packer_emf, "CloudWatchMetrics", 17);
+        msgpack_pack_array(&packer_emf, 1);
+
+        msgpack_pack_map(&packer_emf, 3);
+
+        msgpack_pack_str(&packer_emf, 9);
+        msgpack_pack_str_body(&packer_emf, "Namespace", 9);
+        msgpack_pack_str(&packer_emf, 18);
+        msgpack_pack_str_body(&packer_emf, "fluent-bit-metrics", 18);
+
+        msgpack_pack_str(&packer_emf, 10);
+        msgpack_pack_str_body(&packer_emf, "Dimensions", 10);
+        msgpack_pack_str(&packer_emf, 5);
+        msgpack_pack_str_body(&packer_emf, "Value", 5);
+
+        msgpack_pack_str(&packer_emf, 7);
+        msgpack_pack_str_body(&packer_emf, "Metrics", 7);
+        msgpack_pack_array(&packer_emf, mk_list_size(&flb_ir_metrics));
+        mk_list_foreach_safe(metric_head, metric_temp, &flb_ir_metrics) {
+            struct flb_ir_metric *an_item = mk_list_entry(metric_head, struct flb_ir_metric, _head);
+            msgpack_pack_map(&packer_emf, 2);
+            msgpack_pack_str(&packer_emf, 4);
+            msgpack_pack_str_body(&packer_emf, "Name", 4);
+            msgpack_pack_object(&packer_emf, an_item->key);
+            msgpack_pack_str(&packer_emf, 4);
+            msgpack_pack_str_body(&packer_emf, "Unit", 4);
+            msgpack_pack_str(&packer_emf, strlen(an_item->metric_unit));
+            msgpack_pack_str_body(&packer_emf, an_item->metric_unit, strlen(an_item->metric_unit));
+        }
+        
+
+        
+        // Pack the metric vlaues for each record
+        mk_list_foreach_safe(metric_head, metric_temp, &flb_ir_metrics) {
+            struct flb_ir_metric *an_item = mk_list_entry(metric_head, struct flb_ir_metric, _head);
+            msgpack_pack_object(&packer_emf, an_item->key);
+            msgpack_pack_object(&packer_emf, an_item->value);
+        }
+
+        /*int m;
         for(m = 0; m < 2; m++){
         printf("Inside packer--------------- 1\n");
         msgpack_pack_str(&packer_emf, A_NEW_KEY_LEN);
@@ -294,6 +332,7 @@ static void cb_stdout_flush(const void *data, size_t bytes,
             msgpack_pack_str(&packer_emf, A_NEW_VALUE_LEN); 
             msgpack_pack_str_body(&packer_emf, A_NEW_VALUE, A_NEW_VALUE_LEN);
         }
+        */
         printf("Buffer size: %ld\n", sbuf_emf.size);
         /* deserialize the buffer into msgpack_object instance. */
         /* deserialized object is valid during the msgpack_zone instance alive. */
@@ -308,15 +347,8 @@ static void cb_stdout_flush(const void *data, size_t bytes,
         msgpack_object_print(stdout, deserialized);
         puts("");
 
-
-        /* append new keys */
-        //msgpack_pack_str(&tmp_pck, A_NEW_KEY_LEN);
-        //msgpack_pack_str_body(&tmp_pck, A_NEW_KEY, A_NEW_KEY_LEN);
-        // msgpack_pack_str(&tmp_pck, A_NEW_VALUE_LEN);
-        //msgpack_pack_str_body(&tmp_pck, A_NEW_VALUE, A_NEW_VALUE_LEN);
-
     }
-    msgpack_unpacked_destroy(&result2);
+    msgpack_unpacked_destroy(&result);
 
     if (ctx->out_format != FLB_PACK_JSON_FORMAT_NONE) {
         json = flb_pack_msgpack_to_json_format(data, bytes,
@@ -356,10 +388,7 @@ static void cb_stdout_flush(const void *data, size_t bytes,
         msgpack_unpacked_destroy(&result);
         flb_free(buf);
     }
-    printf("\nCalling flush out of condition\n");
     fflush(stdout);
-
-    printf("\nOne flush Call finished...................................\n");
 
     FLB_OUTPUT_RETURN(FLB_OK);
 }
