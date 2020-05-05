@@ -280,8 +280,14 @@ static void cb_stdout_flush(const void *data, size_t bytes,
 
         msgpack_pack_str(&packer_emf, 9);
         msgpack_pack_str_body(&packer_emf, "Namespace", 9);
-        msgpack_pack_str(&packer_emf, 18);
-        msgpack_pack_str_body(&packer_emf, "fluent-bit-metrics", 18);
+        if(ctx->metric_namespace){
+            msgpack_pack_str(&packer_emf, flb_sds_len(ctx->metric_namespace));
+            msgpack_pack_str_body(&packer_emf, ctx->metric_namespace, flb_sds_len(ctx->metric_namespace));
+        }else{
+            msgpack_pack_str(&packer_emf, 18);
+            msgpack_pack_str_body(&packer_emf, "fluent-bit-metrics", 18);
+        }
+        
 
         msgpack_pack_str(&packer_emf, 10);
         msgpack_pack_str_body(&packer_emf, "Dimensions", 10);
