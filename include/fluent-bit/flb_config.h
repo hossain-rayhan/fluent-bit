@@ -124,6 +124,9 @@ struct flb_config {
     /* Environment */
     void *env;
 
+    /* Exit status code */
+    int exit_status_code;
+
     /* Workers: threads spawn using flb_worker_create() */
     struct mk_list workers;
 
@@ -172,6 +175,9 @@ struct flb_config {
 
     /* Co-routines */
     unsigned int coro_stack_size;
+
+    /* Upstream contexts created by plugins */
+    struct mk_list upstreams;
 
     /*
      * Input table-id: table to keep a reference of thread-IDs used by the

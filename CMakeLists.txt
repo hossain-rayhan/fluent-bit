@@ -3,7 +3,7 @@ project(fluent-bit)
 
 # Fluent Bit Version
 set(FLB_VERSION_MAJOR  1)
-set(FLB_VERSION_MINOR  4)
+set(FLB_VERSION_MINOR  5)
 set(FLB_VERSION_PATCH  0)
 set(FLB_VERSION_STR "${FLB_VERSION_MAJOR}.${FLB_VERSION_MINOR}.${FLB_VERSION_PATCH}")
 
@@ -142,6 +142,7 @@ option(FLB_OUT_PLOT           "Enable Plot output plugin"           Yes)
 option(FLB_OUT_FILE           "Enable file output plugin"           Yes)
 option(FLB_OUT_TD             "Enable Treasure Data output plugin"  Yes)
 option(FLB_OUT_RETRY          "Enable Retry test output plugin"      No)
+option(FLB_OUT_PGSQL          "Enable PostgreSQL output plugin"      No)
 option(FLB_OUT_SLACK          "Enable Slack output plugin"          Yes)
 option(FLB_OUT_SPLUNK         "Enable Splunk output plugin"         Yes)
 option(FLB_OUT_STACKDRIVER    "Enable Stackdriver output plugin"    Yes)
@@ -153,6 +154,7 @@ option(FLB_OUT_KAFKA          "Enable Kafka output plugin"           No)
 option(FLB_OUT_KAFKA_REST     "Enable Kafka Rest output plugin"     Yes)
 option(FLB_OUT_CLOUDWATCH_LOGS "Enable AWS CloudWatch output plugin" Yes)
 option(FLB_FILTER_AWS         "Enable aws filter"                   Yes)
+option(FLB_FILTER_EXPECT      "Enable expect filter"                Yes)
 option(FLB_FILTER_GREP        "Enable grep filter"                  Yes)
 option(FLB_FILTER_MODIFY      "Enable modify filter"                Yes)
 option(FLB_FILTER_STDOUT      "Enable stdout filter"                Yes)
@@ -334,7 +336,6 @@ add_subdirectory(${FLB_PATH_LIB_CHUNKIO} EXCLUDE_FROM_ALL)
 FLB_DEFINITION(JSMN_PARENT_LINKS)
 FLB_DEFINITION(JSMN_STRICT)
 add_subdirectory(${FLB_PATH_LIB_JSMN})
-
 # Runtime Tests (filter_kubernetes) requires HTTP Server
 if(FLB_TESTS_RUNTIME)
   FLB_OPTION(FLB_HTTP_SERVER  ON)
@@ -342,7 +343,7 @@ endif()
 
 # MK Core
 macro(MK_SET_OPTION option value)
-  set(${option} ${value} CACHE "" INTERNAL FORCE)
+  set(${option} ${value} CACHE INTERNAL "" FORCE)
 endmacro()
 MK_SET_OPTION(MK_SYSTEM_MALLOC  ON)
 MK_SET_OPTION(MK_DEBUG          ON)
@@ -566,8 +567,8 @@ endif()
 if(FLB_BACKTRACE)
   FLB_DEFINITION(FLB_HAVE_LIBBACKTRACE)
   ExternalProject_Add(backtrace
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/libbacktrace-5a99ff7f/
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lib/libbacktrace-5a99ff7f/configure ${AUTOCONF_HOST_OPT} --prefix=<INSTALL_DIR> --enable-shared=no --enable-static=yes
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/libbacktrace-ca0de05/
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lib/libbacktrace-ca0de05/configure ${AUTOCONF_HOST_OPT} --prefix=<INSTALL_DIR> --enable-shared=no --enable-static=yes
     BUILD_COMMAND $(MAKE)
     INSTALL_COMMAND $(MAKE) DESTDIR= install
     )
@@ -595,6 +596,13 @@ endif()
 if(FLB_LUAJIT)
   include(cmake/luajit.cmake)
   FLB_DEFINITION(FLB_HAVE_LUAJIT)
+endif()
+
+# PostgreSQL
+# ==========
+find_package(PostgreSQL)
+if(FLB_OUT_PGSQL AND (NOT PostgreSQL_FOUND))
+   FLB_OPTION(FLB_OUT_PGSQL OFF)
 endif()
 
 # Pthread Local Storage
@@ -676,6 +684,7 @@ endif()
 if(FLB_TESTS_RUNTIME)
   enable_testing()
   add_subdirectory(tests/runtime/)
+  add_subdirectory(tests/runtime_shell/)
 endif()
 
 if(FLB_TESTS_INTERNAL)

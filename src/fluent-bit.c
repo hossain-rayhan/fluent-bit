@@ -29,6 +29,8 @@
 #include <monkey/mk_core.h>
 #include <fluent-bit/flb_compat.h>
 #include <fluent-bit/flb_info.h>
+#include <fluent-bit/flb_dump.h>
+#include <fluent-bit/flb_stacktrace.h>
 #include <fluent-bit/flb_env.h>
 #include <fluent-bit/flb_macros.h>
 #include <fluent-bit/flb_utils.h>
@@ -45,61 +47,7 @@
 #include <fluent-bit/flb_plugin.h>
 #include <fluent-bit/flb_parser.h>
 
-/* Libbacktrace support */
-#ifdef FLB_HAVE_LIBBACKTRACE
-#include <backtrace.h>
-#include <backtrace-supported.h>
 
-struct flb_stacktrace {
-    struct backtrace_state *state;
-    int error;
-    int line;
-};
-
-struct flb_stacktrace flb_st;
-
-static void flb_stacktrace_error_callback(void *data,
-                                          const char *msg, int errnum)
-{
-    struct flb_stacktrace *ctx = data;
-    fprintf(stderr, "ERROR: %s (%d)", msg, errnum);
-    ctx->error = 1;
-}
-
-static int flb_stacktrace_print_callback(void *data, uintptr_t pc,
-                                         const char *filename, int lineno,
-                                         const char *function)
-{
-    struct flb_stacktrace *p = data;
-
-    fprintf(stdout, "#%-2i 0x%-17lx in  %s() at %s:%d\n",
-            p->line,
-            (unsigned long) pc,
-            function == NULL ? "???" : function,
-            filename == NULL ? "???" : filename + sizeof(FLB_SOURCE_DIR),
-            lineno);
-    p->line++;
-    return 0;
-}
-
-static inline void flb_stacktrace_init(char *prog)
-{
-    memset(&flb_st, '\0', sizeof(struct flb_stacktrace));
-    flb_st.state = backtrace_create_state(prog,
-                                          BACKTRACE_SUPPORTS_THREADS,
-                                          flb_stacktrace_error_callback, NULL);
-}
-
-void flb_stacktrace_print()
-{
-    struct flb_stacktrace *ctx;
-
-    ctx = &flb_st;
-    backtrace_full(ctx->state, 3, flb_stacktrace_print_callback,
-                   flb_stacktrace_error_callback, ctx);
-}
-
-#endif
 
 #ifdef FLB_HAVE_MTRACE
 #include <mcheck.h>
@@ -374,8 +322,23 @@ static void flb_help_plugin(int rc, struct flb_config *config, int type,
         else if (m->type == FLB_CONFIG_MAP_TIME) {
             printf("time");
         }
-        else if (m->type == FLB_CONFIG_MAP_CLIST) {
-            printf("comma delimited strings");
+        else if (flb_config_map_mult_type(m->type) == FLB_CONFIG_MAP_CLIST) {
+            len = flb_config_map_expected_values(m->type);
+            if (len == -1) {
+                printf("multiple comma delimited strings");
+            }
+            else {
+                printf("comma delimited strings (minimum %i)", len);
+            }
+        }
+        else if (flb_config_map_mult_type(m->type) == FLB_CONFIG_MAP_SLIST) {
+            len = flb_config_map_expected_values(m->type);
+            if (len == -1) {
+                printf("multiple space delimited strings");
+            }
+            else {
+                printf("space delimited strings (minimum %i)", len);
+            }
         }
         else if (m->type == FLB_CONFIG_MAP_STR_PREFIX) {
             printf("prefixed string");
@@ -400,9 +363,10 @@ static void flb_signal_handler(int signal)
     write(STDERR_FILENO, s, sizeof(s) - 1);
     switch (signal) {
         flb_print_signal(SIGINT);
-#ifndef _WIN32
+#ifndef FLB_SYSTEM_WINDOWS
         flb_print_signal(SIGQUIT);
         flb_print_signal(SIGHUP);
+        flb_print_signal(SIGCONT);
 #endif
         flb_print_signal(SIGTERM);
         flb_print_signal(SIGSEGV);
@@ -411,7 +375,7 @@ static void flb_signal_handler(int signal)
     /* Signal handlers */
     switch (signal) {
     case SIGINT:
-#ifndef _WIN32
+#ifndef FLB_SYSTEM_WINDOWS
     case SIGQUIT:
     case SIGHUP:
 #endif
@@ -429,6 +393,11 @@ static void flb_signal_handler(int signal)
         flb_stacktrace_print();
 #endif
         abort();
+#ifndef FLB_SYSTEM_WINDOWS
+    case SIGCONT:
+        flb_dump(config);
+        break;
+#endif
     default:
         break;
     }
@@ -437,9 +406,10 @@ static void flb_signal_handler(int signal)
 static void flb_signal_init()
 {
     signal(SIGINT,  &flb_signal_handler);
-#ifndef _WIN32
+#ifndef FLB_SYSTEM_WINDOWS
     signal(SIGQUIT, &flb_signal_handler);
     signal(SIGHUP,  &flb_signal_handler);
+    signal(SIGCONT, &flb_signal_handler);
 #endif
     signal(SIGTERM, &flb_signal_handler);
     signal(SIGSEGV, &flb_signal_handler);
@@ -1050,9 +1020,9 @@ int main(int argc, char **argv)
     flb_output_prepare();
 
     ret = flb_engine_start(config);
-    if (ret == -1) {
+    if (ret == -1 && config) {
         flb_engine_shutdown(config);
     }
 
-    return 0;
+    return ret;
 }

@@ -27,17 +27,6 @@
 #include <fluent-bit/flb_macros.h>
 #include <fluent-bit/flb_config_map.h>
 
-static int expect_n_values(int type)
-{
-    if (type > FLB_CONFIG_MAP_CLIST && type < FLB_CONFIG_MAP_SLIST) {
-        return type - FLB_CONFIG_MAP_CLIST;
-    }
-    if (type > FLB_CONFIG_MAP_SLIST && type <= FLB_CONFIG_MAP_SLIST_4) {
-        return type - FLB_CONFIG_MAP_SLIST;
-    }
-    return -1;
-}
-
 static int check_list_size(struct mk_list *list, int type)
 {
     int len;
@@ -403,6 +392,20 @@ int property_count(char *key, int len, struct mk_list *properties)
     return count;
 }
 
+/*
+ * If the property starts with '_debug.', it's an internal property for
+ * some component of Fluent Bit, not the plugin it self.
+ */
+static int is_internal_debug_property(char *prop_name)
+{
+    if (strncmp(prop_name, "_debug.", 7) == 0) {
+        return FLB_TRUE;
+    }
+
+    return FLB_FALSE;
+}
+
+
 /* Validate that the incoming properties set by the caller are allowed by the plugin */
 int flb_config_map_properties_check(char *context_name,
                                     struct mk_list *in_properties,
@@ -411,6 +414,7 @@ int flb_config_map_properties_check(char *context_name,
     int len;
     int found;
     int count = 0;
+    int ret;
     flb_sds_t helper;
     struct flb_kv *kv;
     struct mk_list *head;
@@ -421,6 +425,13 @@ int flb_config_map_properties_check(char *context_name,
     mk_list_foreach(head, in_properties) {
         kv = mk_list_entry(head, struct flb_kv, _head);
         found = FLB_FALSE;
+
+
+        ret = is_internal_debug_property(kv->key);
+        if (ret == FLB_TRUE) {
+            /* Skip the config map */
+            continue;
+        }
 
         /* Lookup the key into the provided map */
         mk_list_foreach(m_head, map) {
@@ -502,6 +513,22 @@ static int properties_override_default(struct mk_list *properties, char *name)
 }
 
 /*
+ * Return the number of expected values if the property type is from CLIST
+ * or SLIST family.
+ */
+int flb_config_map_expected_values(int type)
+{
+    if (type > FLB_CONFIG_MAP_CLIST && type < FLB_CONFIG_MAP_SLIST) {
+        return type - FLB_CONFIG_MAP_CLIST;
+    }
+    if (type > FLB_CONFIG_MAP_SLIST && type <= FLB_CONFIG_MAP_SLIST_4) {
+        return type - FLB_CONFIG_MAP_SLIST;
+    }
+    return -1;
+}
+
+
+/*
  * Function used by plugins that needs to populate their context structure with the
  * configuration properties already mapped.
  */
@@ -534,7 +561,7 @@ int flb_config_map_set(struct mk_list *properties, struct mk_list *map, void *co
          * for a linked list. We just point their structure to our pre-processed
          * list of entries.
          */
-        if (m->flags & FLB_CONFIG_MAP_MULT) {
+        if (m->flags & FLB_CONFIG_MAP_MULT && m->set_property == FLB_TRUE) {
             m_list = (struct mk_list **) (base + m->offset);
             *m_list = m->value.mult;
             continue;
@@ -619,7 +646,7 @@ int flb_config_map_set(struct mk_list *properties, struct mk_list *map, void *co
         /* Check if the map allows multiple entries */
         if (m->flags & FLB_CONFIG_MAP_MULT) {
             /* Create node */
-            entry = flb_malloc(sizeof(struct flb_config_map_val));
+            entry = flb_calloc(1, sizeof(struct flb_config_map_val));
             if (!entry) {
                 flb_errno();
                 return -1;
@@ -668,7 +695,8 @@ int flb_config_map_set(struct mk_list *properties, struct mk_list *map, void *co
                 if (ret == -1) {
                     flb_error("[config map] property '%s' expects %i values "
                               "(only %i were found)",
-                              kv->key, expect_n_values(m->type), len);
+                              kv->key,
+                              flb_config_map_expected_values(m->type), len);
                     /*
                      * Register the entry anyways, so on exit the resources will
                      * be released

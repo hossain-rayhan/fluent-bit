@@ -145,6 +145,7 @@ struct flb_config *flb_config_init()
     config->kernel       = flb_kernel_info();
     config->verbose      = 3;
     config->grace        = 5;
+    config->exit_status_code = 0;
 
 #ifdef FLB_HAVE_HTTP_SERVER
     config->http_ctx     = NULL;
@@ -184,6 +185,7 @@ struct flb_config *flb_config_init()
     mk_list_init(&config->outputs);
     mk_list_init(&config->proxies);
     mk_list_init(&config->workers);
+    mk_list_init(&config->upstreams);
 
     memset(&config->tasks_map, '\0', sizeof(config->tasks_map));
 

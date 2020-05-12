@@ -38,6 +38,8 @@
 #include <fluent-bit/flb_kv.h>
 #include <fluent-bit/flb_mem.h>
 #include <fluent-bit/flb_http_client.h>
+#include <fluent-bit/flb_http_client_debug.h>
+#include <fluent-bit/flb_utils.h>
 
 #include <mbedtls/base64.h>
 
@@ -470,6 +472,7 @@ static int add_host_and_content_length(struct flb_http_client *c)
     flb_sds_t host;
     char *out_host;
     int out_port;
+    size_t size;
     struct flb_upstream *u = c->u_conn->u;
 
     if (!c->host) {
@@ -505,12 +508,13 @@ static int add_host_and_content_length(struct flb_http_client *c)
 
     /* Content-Length */
     if (c->body_len >= 0) {
-        tmp = flb_malloc(32);
+        size = 32;
+        tmp = flb_malloc(size);
         if (!tmp) {
             flb_errno();
             return -1;
         }
-        len = snprintf(tmp, sizeof(tmp) - 1, "%i", c->body_len);
+        len = snprintf(tmp, size - 1, "%i", c->body_len);
         flb_http_add_header(c, "Content-Length", 14, tmp, len);
         flb_free(tmp);
     }
@@ -531,7 +535,7 @@ struct flb_http_client *flb_http_client(struct flb_upstream_conn *u_conn,
     char *fmt_plain =                           \
         "%s %s HTTP/1.%i\r\n";
     char *fmt_proxy =                           \
-        "%s http://%s:%i/%s HTTP/1.%i\r\n"
+        "%s http://%s:%i%s HTTP/1.%i\r\n"
         "Proxy-Connection: KeepAlive\r\n";
 
     struct flb_http_client *c;
@@ -570,11 +574,10 @@ struct flb_http_client *flb_http_client(struct flb_upstream_conn *u_conn,
         ret = snprintf(buf, FLB_HTTP_BUF_SIZE,
                        fmt_proxy,
                        str_method,
-                       flags & FLB_HTTP_10 ? 0 : 1,
                        host,
                        port,
-                       "",
-                       body_len);
+                       uri,
+                       flags & FLB_HTTP_10 ? 0 : 1);
     }
 
     if (ret == -1) {
@@ -906,7 +909,13 @@ int flb_http_basic_auth(struct flb_http_client *c,
      */
 
     len_u = strlen(user);
-    len_p = strlen(passwd);
+
+    if (passwd) {
+        len_p = strlen(passwd);
+    }
+    else {
+        len_p = 0;
+    }
 
     p = flb_malloc(len_u + len_p + 2);
     if (!p) {
@@ -974,6 +983,14 @@ int flb_http_do(struct flb_http_client *c, size_t *bytes)
     /* Append the ending header CRLF */
     c->header_buf[c->header_len++] = '\r';
     c->header_buf[c->header_len++] = '\n';
+
+    /* debug: request_headers callback */
+    flb_http_client_debug_cb(c, "_debug.http.request_headers");
+
+    /* debug: request_payload callback */
+    if (c->body_len > 0) {
+        flb_http_client_debug_cb(c, "_debug.http.request_payload");
+    }
 
     /* Write the header */
     ret = flb_io_net_write(c->u_conn,
@@ -1050,6 +1067,10 @@ int flb_http_do(struct flb_http_client *c, size_t *bytes)
         }
     }
 
+    flb_http_client_debug_cb(c, "_debug.http.response_headers");
+    if (c->resp.payload_size > 0) {
+        flb_http_client_debug_cb(c, "_debug.http.response_payload");
+    }
     return 0;
 }
 
@@ -1058,5 +1079,6 @@ void flb_http_client_destroy(struct flb_http_client *c)
     http_headers_destroy(c);
     flb_free(c->resp.data);
     flb_free(c->header_buf);
+    flb_free((void *)c->proxy.host);
     flb_free(c);
 }

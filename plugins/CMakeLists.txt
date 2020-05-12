@@ -182,6 +182,7 @@ REGISTER_OUT_PLUGIN("out_null")
 if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
   REGISTER_OUT_PLUGIN("out_plot")
 endif()
+REGISTER_OUT_PLUGIN("out_pgsql")
 REGISTER_OUT_PLUGIN("out_retry")
 REGISTER_OUT_PLUGIN("out_slack")
 REGISTER_OUT_PLUGIN("out_splunk")
@@ -196,7 +197,9 @@ REGISTER_OUT_PLUGIN("out_cloudwatch_logs")
 
 # FILTERS
 # =======
-REGISTER_FILTER_PLUGIN("filter_stdout")
+REGISTER_FILTER_PLUGIN("filter_aws")
+REGISTER_FILTER_PLUGIN("filter_expect")
+REGISTER_FILTER_PLUGIN("filter_record_modifier")
 REGISTER_FILTER_PLUGIN("filter_rewrite_tag")
 REGISTER_FILTER_PLUGIN("filter_throttle")
 
@@ -212,8 +215,8 @@ if(FLB_LUAJIT)
   REGISTER_FILTER_PLUGIN("filter_lua")
 endif()
 
-REGISTER_FILTER_PLUGIN("filter_record_modifier")
-REGISTER_FILTER_PLUGIN("filter_aws")
+REGISTER_FILTER_PLUGIN("filter_stdout")
+
 
 # Register external input and output plugins
 if(EXT_IN_PLUGINS)

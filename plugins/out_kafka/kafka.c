@@ -28,7 +28,7 @@
 void cb_kafka_msg(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage,
                   void *opaque)
 {
-    struct flb_kafka *ctx = opaque;
+    struct flb_kafka *ctx = (struct flb_kafka *) opaque;
 
     if (rkmessage->err) {
         flb_plg_warn(ctx->ins, "message delivery failed: %s",
@@ -44,17 +44,26 @@ void cb_kafka_msg(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage,
 void cb_kafka_logger(const rd_kafka_t *rk, int level,
                      const char *fac, const char *buf)
 {
+    struct flb_kafka *ctx;
 
-    /*
-     * FIXME:
-     *
-     * rdkafka logging callback seems not support opaque data types,
-     * this API migration will be pending until we get an update:
-     *
-     * https://github.com/edenhill/librdkafka/issues/2717
-     */
-    flb_error("[out_kafka] %s: %s",
-              rk ? rd_kafka_name(rk) : NULL, buf);
+    ctx = (struct flb_kafka *) rd_kafka_opaque(rk);
+
+    if (level <= FLB_KAFKA_LOG_ERR) {
+        flb_plg_error(ctx->ins, "%s: %s",
+                      rk ? rd_kafka_name(rk) : NULL, buf);
+    }
+    else if (level == FLB_KAFKA_LOG_WARNING) {
+        flb_plg_warn(ctx->ins, "%s: %s",
+                     rk ? rd_kafka_name(rk) : NULL, buf);
+    }
+    else if (level == FLB_KAFKA_LOG_NOTICE || level == FLB_KAFKA_LOG_INFO) {
+        flb_plg_info(ctx->ins, "%s: %s",
+                     rk ? rd_kafka_name(rk) : NULL, buf);
+    }
+    else if (level == FLB_KAFKA_LOG_DEBUG) {
+        flb_plg_debug(ctx->ins, "%s: %s",
+                      rk ? rd_kafka_name(rk) : NULL, buf);
+    }
 }
 
 static int cb_kafka_init(struct flb_output_instance *ins,

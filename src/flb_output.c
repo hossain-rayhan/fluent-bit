@@ -35,6 +35,7 @@
 #include <fluent-bit/flb_macros.h>
 #include <fluent-bit/flb_utils.h>
 #include <fluent-bit/flb_plugin_proxy.h>
+#include <fluent-bit/flb_http_client_debug.h>
 
 FLB_TLS_DEFINE(struct flb_libco_out_params, flb_libco_params);
 
@@ -124,6 +125,7 @@ int flb_output_instance_destroy(struct flb_output_instance *ins)
 
     flb_sds_destroy(ins->host.name);
     flb_sds_destroy(ins->host.address);
+    flb_sds_destroy(ins->host.listen);
     flb_sds_destroy(ins->match);
 
 #ifdef FLB_HAVE_REGEX
@@ -146,6 +148,11 @@ int flb_output_instance_destroy(struct flb_output_instance *ins)
         flb_metrics_destroy(ins->metrics);
     }
 #endif
+
+    /* destroy callback context */
+    if (ins->callback) {
+        flb_callback_destroy(ins->callback);
+    }
 
     /* destroy config map */
     if (ins->config_map) {
@@ -178,10 +185,11 @@ void flb_output_exit(struct flb_config *config)
         if (p->cb_exit) {
             if(!p->proxy) {
                 p->cb_exit(ins->context, config);
-            } else {
+            }
+            else {
                 p->cb_exit(p, ins->context);
             }
-        } 
+        }
 
         if (ins->upstream) {
             flb_upstream_destroy(ins->upstream);
@@ -258,7 +266,6 @@ struct flb_output_instance *flb_output_new(struct flb_config *config,
     }
     instance->config = config;
     instance->log_level = -1;
-
     /*
      * Set mask_id: the mask_id is an unique number assigned to this
      * output instance that is used later to set in an 'unsigned 64
@@ -281,6 +288,11 @@ struct flb_output_instance *flb_output_new(struct flb_config *config,
     snprintf(instance->name, sizeof(instance->name) - 1,
              "%s.%i", plugin->name, instance->id);
     instance->p = plugin;
+    instance->callback = flb_callback_create(instance->name);
+    if (!instance->callback) {
+        flb_free(instance);
+        return NULL;
+    }
 
     if (plugin->type == FLB_OUTPUT_PLUGIN_CORE) {
         instance->context = NULL;
@@ -326,20 +338,21 @@ struct flb_output_instance *flb_output_new(struct flb_config *config,
         instance->flags |= FLB_IO_TLS;
     }
 
-    /* Keepalive */
+    /* Keepalive feature to reuse Upstream connections */
     instance->keepalive = FLB_FALSE;
     instance->keepalive_timeout = FLB_OUTPUT_KA_TIMEOUT;
 
 #ifdef FLB_HAVE_TLS
-    instance->tls.context    = NULL;
-    instance->tls_debug      = -1;
-    instance->tls_verify     = FLB_TRUE;
-    instance->tls_vhost      = NULL;
-    instance->tls_ca_path    = NULL;
-    instance->tls_ca_file    = NULL;
-    instance->tls_crt_file   = NULL;
-    instance->tls_key_file   = NULL;
-    instance->tls_key_passwd = NULL;
+    instance->tls.context           = NULL;
+    instance->tls.handshake_timeout = FLB_UPSTREAM_TLS_HANDSHAKE_TIMEOUT;
+    instance->tls_debug             = -1;
+    instance->tls_verify            = FLB_TRUE;
+    instance->tls_vhost             = NULL;
+    instance->tls_ca_path           = NULL;
+    instance->tls_ca_file           = NULL;
+    instance->tls_crt_file          = NULL;
+    instance->tls_key_file          = NULL;
+    instance->tls_key_passwd        = NULL;
 #endif
 
     if (plugin->flags & FLB_OUTPUT_NET) {
@@ -419,7 +432,7 @@ int flb_output_set_property(struct flb_output_instance *ins,
             ins->host.port = 0;
         }
     }
-    else if (prop_key_check("keepalive", k, len) == 0){
+    else if (prop_key_check("keepalive", k, len) == 0) {
         if (tmp) {
             ins->keepalive = flb_utils_bool(tmp);
             flb_sds_destroy(tmp);
@@ -428,7 +441,7 @@ int flb_output_set_property(struct flb_output_instance *ins,
             ins->keepalive = FLB_FALSE;
         }
     }
-    else if (prop_key_check("keepalive_timeout", k, len) == 0){
+    else if (prop_key_check("keepalive_timeout", k, len) == 0) {
         if (tmp) {
             ins->keepalive_timeout = atoi(tmp);
             flb_sds_destroy(tmp);
@@ -455,6 +468,24 @@ int flb_output_set_property(struct flb_output_instance *ins,
         }
         else {
             ins->retry_limit = 0;
+        }
+    }
+    else if (strncasecmp("_debug.http.", k, 12) == 0 && tmp) {
+        ret = flb_http_client_debug_property_is_valid((char *) k, tmp);
+        if (ret == FLB_TRUE) {
+            kv = flb_kv_item_create(&ins->properties, (char *) k, NULL);
+            if (!kv) {
+                if (tmp) {
+                    flb_sds_destroy(tmp);
+                }
+                return -1;
+            }
+            kv->val = tmp;
+        }
+        else {
+            flb_error("[config] invalid property '%s' on instance '%s'",
+                      k, flb_output_name(ins));
+            flb_sds_destroy(tmp);
         }
     }
 #ifdef FLB_HAVE_TLS
@@ -503,6 +534,10 @@ int flb_output_set_property(struct flb_output_instance *ins,
     }
     else if (prop_key_check("tls.key_passwd", k, len) == 0) {
         ins->tls_key_passwd = tmp;
+    }
+    else if (prop_key_check("tls.handshake_timeout", k, len) == 0 && tmp) {
+        ins->tls.handshake_timeout = atoi(tmp);
+        flb_sds_destroy(tmp);
     }
 #endif
     else {
@@ -721,4 +756,13 @@ int flb_output_upstream_set(struct flb_upstream *u, struct flb_output_instance *
     /* Set flags */
     u->flags |= flags;
     return 0;
+}
+
+/*
+ * Helper function to set HTTP callbacks using the output instance 'callback'
+ * context.
+ */
+int flb_output_set_http_debug_callbacks(struct flb_output_instance *ins)
+{
+    return flb_http_client_debug_setup(ins->callback, &ins->properties);
 }
