@@ -31,7 +31,6 @@
 #include <fluent-bit/flb_aws_credentials.h>
 #include <fluent-bit/flb_aws_util.h>
 #include <fluent-bit/flb_mem.h>
-#include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_http_client.h>
 #include <fluent-bit/flb_utils.h>
 
@@ -58,11 +57,12 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
     char *session_name;
     struct flb_cloudwatch *ctx = NULL;
     struct flb_aws_credentials *creds = NULL;
-    (void) config;
-    (void) data;
+    (void)config;
+    (void)data;
 
     ctx = flb_calloc(1, sizeof(struct flb_cloudwatch));
-    if (!ctx) {
+    if (!ctx)
+    {
         flb_errno();
         return -1;
     }
@@ -72,81 +72,112 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
     ctx->ins = ins;
 
     tmp = flb_output_get_property("log_group_name", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->log_group = tmp;
-    } else {
+    }
+    else
+    {
         flb_plg_error(ctx->ins, "'log_group_name' is a required field");
         goto error;
     }
 
     tmp = flb_output_get_property("log_stream_name", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->log_stream_name = tmp;
     }
 
     tmp = flb_output_get_property("log_stream_prefix", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->log_stream_prefix = tmp;
     }
 
-    if (!ctx->log_stream_name && !ctx->log_stream_prefix) {
+    if (!ctx->log_stream_name && !ctx->log_stream_prefix)
+    {
         flb_plg_error(ctx->ins, "Either 'log_stream_name' or 'log_stream_prefix'"
-                      " is required");
+                                " is required");
         goto error;
     }
 
-    if (ctx->log_stream_name && ctx->log_stream_prefix) {
+    if (ctx->log_stream_name && ctx->log_stream_prefix)
+    {
         flb_plg_error(ctx->ins, "Either 'log_stream_name' or 'log_stream_prefix'"
-                      " is required");
+                                " is required");
         goto error;
     }
 
     tmp = flb_output_get_property("log_format", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->log_format = tmp;
     }
 
     tmp = flb_output_get_property("endpoint", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->custom_endpoint = FLB_TRUE;
-        ctx->endpoint = (char *) tmp;
+        ctx->endpoint = (char *)tmp;
     }
-    else {
+    else
+    {
         ctx->custom_endpoint = FLB_FALSE;
     }
 
     tmp = flb_output_get_property("log_key", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->log_key = tmp;
     }
 
     tmp = flb_output_get_property("region", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->region = tmp;
-    } else {
+    }
+    else
+    {
         flb_plg_error(ctx->ins, "'region' is a required field");
         goto error;
+    }
+
+    tmp = flb_output_get_property("metric_namespace", ins);
+    if (tmp)
+    {
+        flb_plg_info(ctx->ins, "Metric Namespace=%s", tmp);
+        ctx->metric_namespace = flb_sds_create(tmp);
+    }
+
+    tmp = flb_output_get_property("metric_dimensions", ins);
+    if (tmp)
+    {
+        flb_plg_info(ctx->ins, "Metric Dimensions=%s", tmp);
+        ctx->metric_dimensions = flb_utils_split(tmp, ';', 256);
     }
 
     ctx->create_group = FLB_FALSE;
     tmp = flb_output_get_property("auto_create_group", ins);
     /* native plugins use On/Off as bool, the old Go plugin used true/false */
-    if (tmp && (strcasecmp(tmp, "On") == 0 || strcasecmp(tmp, "true") == 0)) {
+    if (tmp && (strcasecmp(tmp, "On") == 0 || strcasecmp(tmp, "true") == 0))
+    {
         ctx->create_group = FLB_TRUE;
     }
 
     tmp = flb_output_get_property("role_arn", ins);
-    if (tmp) {
+    if (tmp)
+    {
         ctx->role_arn = tmp;
     }
-
 
     ctx->group_created = FLB_FALSE;
 
     /* init log streams */
-    if (ctx->log_stream_name) {
+    if (ctx->log_stream_name)
+    {
         ctx->stream.name = flb_sds_create(ctx->log_stream_name);
-        if (!ctx->stream.name) {
+        if (!ctx->stream.name)
+        {
             flb_errno();
             goto error;
         }
@@ -163,7 +194,8 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
                                                 ins->tls_key_file,
                                                 ins->tls_key_passwd);
 
-    if (!ctx->cred_tls.context) {
+    if (!ctx->cred_tls.context)
+    {
         flb_plg_error(ctx->ins, "Failed to create tls context");
         goto error;
     }
@@ -176,7 +208,8 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
                                                   ins->tls_crt_file,
                                                   ins->tls_key_file,
                                                   ins->tls_key_passwd);
-    if (!ctx->client_tls.context) {
+    if (!ctx->client_tls.context)
+    {
         flb_plg_error(ctx->ins, "Failed to create tls context");
         goto error;
     }
@@ -186,15 +219,18 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
                                                            "us-west-2",
                                                            NULL,
                                                            flb_aws_client_generator());
-    if (!ctx->aws_provider) {
+    if (!ctx->aws_provider)
+    {
         flb_plg_error(ctx->ins, "Failed to create AWS Credential Provider");
         goto error;
     }
 
-    if(ctx->role_arn) {
+    if (ctx->role_arn)
+    {
         /* set up sts assume role provider */
         session_name = flb_sts_session_name();
-        if (!session_name) {
+        if (!session_name)
+        {
             flb_plg_error(ctx->ins,
                           "Failed to generate random STS session name");
             goto error;
@@ -209,7 +245,8 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
                                                    ins->tls_crt_file,
                                                    ins->tls_key_file,
                                                    ins->tls_key_passwd);
-        if (!ctx->sts_tls.context) {
+        if (!ctx->sts_tls.context)
+        {
             flb_errno();
             goto error;
         }
@@ -220,12 +257,13 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
                                                     &ctx->sts_tls,
                                                     ctx->base_aws_provider,
                                                     NULL,
-                                                    (char *) ctx->role_arn,
+                                                    (char *)ctx->role_arn,
                                                     session_name,
-                                                    (char *) ctx->region,
+                                                    (char *)ctx->region,
                                                     NULL,
                                                     flb_aws_client_generator());
-        if (!ctx->aws_provider) {
+        if (!ctx->aws_provider)
+        {
             flb_plg_error(ctx->ins,
                           "Failed to create AWS STS Credential Provider");
             goto error;
@@ -237,26 +275,30 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
     /* initialize credentials and set to sync mode */
     ctx->aws_provider->provider_vtable->sync(ctx->aws_provider);
     creds = ctx->aws_provider->provider_vtable->get_credentials(ctx->aws_provider);
-    if (creds) {
+    if (creds)
+    {
         flb_aws_credentials_destroy(creds);
     }
 
-    if (ctx->endpoint == NULL) {
-        ctx->endpoint = flb_aws_endpoint("logs", (char *) ctx->region);
-        if (!ctx->endpoint) {
+    if (ctx->endpoint == NULL)
+    {
+        ctx->endpoint = flb_aws_endpoint("logs", (char *)ctx->region);
+        if (!ctx->endpoint)
+        {
             goto error;
         }
     }
 
     struct flb_aws_client_generator *generator = flb_aws_client_generator();
     ctx->cw_client = generator->create();
-    if (!ctx->cw_client) {
+    if (!ctx->cw_client)
+    {
         goto error;
     }
     ctx->cw_client->name = "cw_client";
     ctx->cw_client->has_auth = FLB_TRUE;
     ctx->cw_client->provider = ctx->aws_provider;
-    ctx->cw_client->region = (char *) ctx->region;
+    ctx->cw_client->region = (char *)ctx->region;
     ctx->cw_client->service = "logs";
     ctx->cw_client->port = 443;
     ctx->cw_client->flags = 0;
@@ -267,7 +309,8 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
     struct flb_upstream *upstream = flb_upstream_create(config, ctx->endpoint,
                                                         443, FLB_IO_TLS,
                                                         &ctx->client_tls);
-    if (!upstream) {
+    if (!upstream)
+    {
         flb_plg_error(ctx->ins, "Connection initialization error");
         goto error;
     }
@@ -281,7 +324,6 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
 
     ctx->cw_client->upstream = upstream;
     ctx->cw_client->host = ctx->endpoint;
-
 
     /* Export context */
     flb_output_set_context(ins, ctx);
@@ -305,30 +347,35 @@ static void cb_cloudwatch_flush(const void *data, size_t bytes,
     int event_count;
     struct log_stream *stream = NULL;
     struct cw_flush *buf = NULL;
-    (void) i_ins;
-    (void) config;
+    (void)i_ins;
+    (void)config;
 
-    if (ctx->create_group == FLB_TRUE && ctx->group_created == FLB_FALSE) {
+    if (ctx->create_group == FLB_TRUE && ctx->group_created == FLB_FALSE)
+    {
         ret = create_log_group(ctx);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             FLB_OUTPUT_RETURN(FLB_RETRY);
         }
     }
 
     stream = get_log_stream(ctx, tag, tag_len);
-    if (!stream) {
+    if (!stream)
+    {
         FLB_OUTPUT_RETURN(FLB_RETRY);
     }
 
     buf = flb_calloc(1, sizeof(struct cw_flush));
-    if (!buf) {
+    if (!buf)
+    {
         flb_errno();
         FLB_OUTPUT_RETURN(FLB_RETRY);
     }
 
     /* TODO: could be more efficient in some cases with these memory allocs */
     buf->out_buf = flb_malloc(sizeof(char) * PUT_LOG_EVENTS_PAYLOAD_SIZE);
-    if (!buf->out_buf) {
+    if (!buf->out_buf)
+    {
         flb_errno();
         cw_flush_destroy(buf);
         FLB_OUTPUT_RETURN(FLB_RETRY);
@@ -336,7 +383,8 @@ static void cb_cloudwatch_flush(const void *data, size_t bytes,
     buf->out_buf_size = PUT_LOG_EVENTS_PAYLOAD_SIZE;
 
     buf->tmp_buf = flb_malloc(sizeof(char) * PUT_LOG_EVENTS_PAYLOAD_SIZE);
-    if (!buf->tmp_buf) {
+    if (!buf->tmp_buf)
+    {
         flb_errno();
         cw_flush_destroy(buf);
         FLB_OUTPUT_RETURN(FLB_RETRY);
@@ -344,15 +392,17 @@ static void cb_cloudwatch_flush(const void *data, size_t bytes,
     buf->tmp_buf_size = PUT_LOG_EVENTS_PAYLOAD_SIZE;
 
     buf->events = flb_malloc(sizeof(struct event) * 1000);
-    if (!buf->events) {
+    if (!buf->events)
+    {
         flb_errno();
         cw_flush_destroy(buf);
         FLB_OUTPUT_RETURN(FLB_RETRY);
     }
     buf->events_capacity = 1000;
 
-    event_count = process_and_send(ctx, buf, stream, data, bytes);
-    if (event_count < 0) {
+    event_count = process_and_send(ctx, i_ins->p->name, buf, stream, data, bytes);
+    if (event_count < 0)
+    {
         flb_plg_error(ctx->ins, "Failed to send events");
         cw_flush_destroy(buf);
         FLB_OUTPUT_RETURN(FLB_RETRY);
@@ -370,44 +420,58 @@ void flb_cloudwatch_ctx_destroy(struct flb_cloudwatch *ctx)
     struct mk_list *tmp;
     struct mk_list *head;
 
-    if (ctx != NULL) {
-        if (ctx->base_aws_provider) {
+    if (ctx != NULL)
+    {
+        if (ctx->base_aws_provider)
+        {
             flb_aws_provider_destroy(ctx->base_aws_provider);
         }
 
-        if (ctx->aws_provider) {
+        if (ctx->aws_provider)
+        {
             flb_aws_provider_destroy(ctx->aws_provider);
         }
 
-        if (ctx->cred_tls.context) {
+        if (ctx->cred_tls.context)
+        {
             flb_tls_context_destroy(ctx->cred_tls.context);
         }
 
-        if (ctx->sts_tls.context) {
+        if (ctx->sts_tls.context)
+        {
             flb_tls_context_destroy(ctx->sts_tls.context);
         }
 
-        if (ctx->client_tls.context) {
+        if (ctx->client_tls.context)
+        {
             flb_tls_context_destroy(ctx->client_tls.context);
         }
 
-        if (ctx->cw_client) {
+        if (ctx->cw_client)
+        {
             flb_aws_client_destroy(ctx->cw_client);
         }
 
-        if (ctx->custom_endpoint == FLB_FALSE) {
+        if (ctx->custom_endpoint == FLB_FALSE)
+        {
             flb_free(ctx->endpoint);
         }
 
-        if (ctx->log_stream_name) {
-            if (ctx->stream.name) {
+        if (ctx->log_stream_name)
+        {
+            if (ctx->stream.name)
+            {
                 flb_sds_destroy(ctx->stream.name);
             }
-            if (ctx->stream.sequence_token) {
+            if (ctx->stream.sequence_token)
+            {
                 flb_sds_destroy(ctx->stream.sequence_token);
             }
-        } else {
-            mk_list_foreach_safe(head, tmp, &ctx->streams) {
+        }
+        else
+        {
+            mk_list_foreach_safe(head, tmp, &ctx->streams)
+            {
                 stream = mk_list_entry(head, struct log_stream, _head);
                 mk_list_del(&stream->_head);
                 log_stream_destroy(stream);
@@ -427,11 +491,14 @@ static int cb_cloudwatch_exit(void *data, struct flb_config *config)
 
 void log_stream_destroy(struct log_stream *stream)
 {
-    if (stream) {
-        if (stream->name) {
+    if (stream)
+    {
+        if (stream->name)
+        {
             flb_sds_destroy(stream->name);
         }
-        if (stream->sequence_token) {
+        if (stream->sequence_token)
+        {
             flb_sds_destroy(stream->sequence_token);
         }
         flb_free(stream);
@@ -440,10 +507,10 @@ void log_stream_destroy(struct log_stream *stream)
 
 /* Plugin registration */
 struct flb_output_plugin out_cloudwatch_logs_plugin = {
-    .name         = "cloudwatch_logs",
-    .description  = "Send logs to Amazon CloudWatch",
-    .cb_init      = cb_cloudwatch_init,
-    .cb_flush     = cb_cloudwatch_flush,
-    .cb_exit      = cb_cloudwatch_exit,
-    .flags        = 0,
+    .name = "cloudwatch_logs",
+    .description = "Send logs to Amazon CloudWatch",
+    .cb_init = cb_cloudwatch_init,
+    .cb_flush = cb_cloudwatch_flush,
+    .cb_exit = cb_cloudwatch_exit,
+    .flags = 0,
 };

@@ -35,6 +35,7 @@
 #include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_http_client.h>
 #include <fluent-bit/flb_utils.h>
+#include <fluent-bit/flb_intermediate_metric.h>
 
 #include <monkey/mk_core.h>
 #include <msgpack.h>
@@ -44,11 +45,11 @@
 
 #include "cloudwatch_api.h"
 
-#define ERR_CODE_ALREADY_EXISTS         "ResourceAlreadyExistsException"
+#define ERR_CODE_ALREADY_EXISTS "ResourceAlreadyExistsException"
 #define ERR_CODE_INVALID_SEQUENCE_TOKEN "InvalidSequenceTokenException"
 
-#define ONE_DAY_IN_MILLISECONDS          86400000
-#define FOUR_HOURS_IN_SECONDS            14400
+#define ONE_DAY_IN_MILLISECONDS 86400000
+#define FOUR_HOURS_IN_SECONDS 14400
 
 static struct flb_aws_header create_group_header = {
     .key = "X-Amz-Target",
@@ -81,16 +82,19 @@ static struct flb_aws_header put_log_events_header[] = {
 
 int compare_events(const void *a_arg, const void *b_arg)
 {
-    struct event *r_a = (struct event *) a_arg;
-    struct event *r_b = (struct event *) b_arg;
+    struct event *r_a = (struct event *)a_arg;
+    struct event *r_b = (struct event *)b_arg;
 
-    if (r_a->timestamp < r_b->timestamp) {
+    if (r_a->timestamp < r_b->timestamp)
+    {
         return -1;
     }
-    else if (r_a->timestamp == r_b->timestamp) {
+    else if (r_a->timestamp == r_b->timestamp)
+    {
         return 0;
     }
-    else {
+    else
+    {
         return 1;
     }
 }
@@ -98,13 +102,15 @@ int compare_events(const void *a_arg, const void *b_arg)
 static inline int try_to_write(char *buf, int *off, size_t left,
                                const char *str, size_t str_len)
 {
-    if (str_len <= 0){
+    if (str_len <= 0)
+    {
         str_len = strlen(str);
     }
-    if (left <= *off+str_len) {
+    if (left <= *off + str_len)
+    {
         return FLB_FALSE;
     }
-    memcpy(buf+*off, str, str_len);
+    memcpy(buf + *off, str, str_len);
     *off += str_len;
     return FLB_TRUE;
 }
@@ -116,49 +122,59 @@ static int init_put_payload(struct flb_cloudwatch *ctx, struct cw_flush *buf,
                             struct log_stream *stream, int *offset)
 {
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "{\"logGroupName\":\"", 17)) {
+                      "{\"logGroupName\":\"", 17))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      ctx->log_group, 0)) {
+                      ctx->log_group, 0))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "\",\"logStreamName\":\"", 19)) {
+                      "\",\"logStreamName\":\"", 19))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      stream->name, 0)) {
+                      stream->name, 0))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "\",", 2)) {
+                      "\",", 2))
+    {
         goto error;
     }
 
-    if (stream->sequence_token) {
+    if (stream->sequence_token)
+    {
         if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                          "\"sequenceToken\":\"", 17)) {
+                          "\"sequenceToken\":\"", 17))
+        {
             goto error;
         }
 
         if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                          stream->sequence_token, 0)) {
+                          stream->sequence_token, 0))
+        {
             goto error;
         }
 
         if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                          "\",", 2)) {
+                          "\",", 2))
+        {
             goto error;
         }
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "\"logEvents\":[", 13)) {
+                      "\"logEvents\":[", 13))
+    {
         goto error;
     }
 
@@ -176,32 +192,38 @@ static int write_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
 {
     char ts[50];
 
-    if (!sprintf(ts, "%llu", event->timestamp)) {
+    if (!sprintf(ts, "%llu", event->timestamp))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "{\"timestamp\":", 13)) {
+                      "{\"timestamp\":", 13))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      ts, 0)) {
+                      ts, 0))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      ",\"message\":\"", 12)) {
+                      ",\"message\":\"", 12))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      event->json, event->len)) {
+                      event->json, event->len))
+    {
         goto error;
     }
 
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "\"}", 2)) {
+                      "\"}", 2))
+    {
         goto error;
     }
 
@@ -216,7 +238,8 @@ static int end_put_payload(struct flb_cloudwatch *ctx, struct cw_flush *buf,
                            int *offset)
 {
     if (!try_to_write(buf->out_buf, offset, buf->out_buf_size,
-                      "]}", 2)) {
+                      "]}", 2))
+    {
         return -1;
     }
     buf->out_buf[*offset] = '\0';
@@ -227,13 +250,17 @@ static int end_put_payload(struct flb_cloudwatch *ctx, struct cw_flush *buf,
 static unsigned long long stream_time_span(struct log_stream *stream,
                                            struct event *event)
 {
-    if (stream->oldest_event == 0 || stream->newest_event == 0) {
+    if (stream->oldest_event == 0 || stream->newest_event == 0)
+    {
         return 0;
     }
 
-    if (stream->oldest_event > event->timestamp) {
+    if (stream->oldest_event > event->timestamp)
+    {
         return stream->newest_event - event->timestamp;
-    } else if (stream->newest_event < event->timestamp) {
+    }
+    else if (stream->newest_event < event->timestamp)
+    {
         return event->timestamp - stream->oldest_event;
     }
 
@@ -246,7 +273,8 @@ static int check_stream_time_span(struct log_stream *stream,
 {
     unsigned long long span = stream_time_span(stream, event);
 
-    if (span < ONE_DAY_IN_MILLISECONDS) {
+    if (span < ONE_DAY_IN_MILLISECONDS)
+    {
         return FLB_TRUE;
     }
 
@@ -256,15 +284,16 @@ static int check_stream_time_span(struct log_stream *stream,
 /* sets the oldest_event and newest_event fields */
 static void set_stream_time_span(struct log_stream *stream, struct event *event)
 {
-    if (stream->oldest_event == 0 || stream->oldest_event > event->timestamp) {
+    if (stream->oldest_event == 0 || stream->oldest_event > event->timestamp)
+    {
         stream->oldest_event = event->timestamp;
     }
 
-    if (stream->newest_event == 0 || stream->newest_event < event->timestamp) {
+    if (stream->newest_event == 0 || stream->newest_event < event->timestamp)
+    {
         stream->newest_event = event->timestamp;
     }
 }
-
 
 /*
  * Processes the msgpack object
@@ -285,7 +314,8 @@ int process_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     written = flb_msgpack_to_json(tmp_buf_ptr,
                                   buf->tmp_buf_size - buf->tmp_buf_offset,
                                   obj);
-    if (written < 0) {
+    if (written < 0)
+    {
         /*
          * negative value means failure to write to buffer,
          * which means we ran out of space, and must send the logs
@@ -293,43 +323,50 @@ int process_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
         return 1;
     }
     /* Discard empty messages (written == 2 means '""') */
-    if (written <= 2) {
+    if (written <= 2)
+    {
         flb_plg_debug(ctx->ins, "Found empty log message");
         return 0;
     }
 
     /* the json string must be escaped, unless the log_key option is used */
-    if (ctx->log_key == NULL) {
+    if (ctx->log_key == NULL)
+    {
         /*
          * check if event_buf is initialized and big enough
          * If all chars need to be hex encoded (impossible), 6x space would be
          * needed
          */
         size = written * 6;
-        if (buf->event_buf == NULL || buf->event_buf_size < size) {
+        if (buf->event_buf == NULL || buf->event_buf_size < size)
+        {
             flb_free(buf->event_buf);
             buf->event_buf = flb_malloc(size);
             buf->event_buf_size = size;
-            if (buf->event_buf == NULL) {
+            if (buf->event_buf == NULL)
+            {
                 flb_errno();
                 return -1;
             }
         }
         offset = 0;
         if (!flb_utils_write_str(buf->event_buf, &offset, size,
-                                 tmp_buf_ptr, written)) {
+                                 tmp_buf_ptr, written))
+        {
             return -1;
         }
         written = offset;
 
         tmp_buf_ptr = buf->tmp_buf + buf->tmp_buf_offset;
-        if ((buf->tmp_buf_size - buf->tmp_buf_offset) < written) {
+        if ((buf->tmp_buf_size - buf->tmp_buf_offset) < written)
+        {
             /* not enough space, send logs */
             return 1;
         }
 
         /* copy serialized json to tmp_buf */
-        if (!strncpy(tmp_buf_ptr, buf->event_buf, written)) {
+        if (!strncpy(tmp_buf_ptr, buf->event_buf, written))
+        {
             return -1;
         }
 
@@ -337,10 +374,11 @@ int process_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
         event = &buf->events[buf->event_index];
         event->json = tmp_buf_ptr;
         event->len = written;
-        event->timestamp = (unsigned long long) (tms->tm.tv_sec * 1000 +
-                                                 tms->tm.tv_nsec/1000000);
-
-    } else {
+        event->timestamp = (unsigned long long)(tms->tm.tv_sec * 1000 +
+                                                tms->tm.tv_nsec / 1000000);
+    }
+    else
+    {
         /*
          * flb_msgpack_to_json will encase the value in quotes
          * We don't want that for log_key, so we ignore the first
@@ -353,8 +391,8 @@ int process_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
         event = &buf->events[buf->event_index];
         event->json = tmp_buf_ptr;
         event->len = written;
-        event->timestamp = (unsigned long long) (tms->tm.tv_sec * 1000 +
-                                                 tms->tm.tv_nsec/1000000);
+        event->timestamp = (unsigned long long)(tms->tm.tv_sec * 1000 +
+                                                tms->tm.tv_nsec / 1000000);
     }
 
     return 0;
@@ -362,27 +400,31 @@ int process_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
 
 /* Resets or inits a cw_flush struct */
 void reset_flush_buf(struct flb_cloudwatch *ctx, struct cw_flush *buf,
-                    struct log_stream *stream) {
+                     struct log_stream *stream)
+{
     buf->event_index = 0;
     buf->tmp_buf_offset = 0;
     buf->event_index = 0;
     buf->data_size = PUT_LOG_EVENTS_HEADER_LEN + PUT_LOG_EVENTS_FOOTER_LEN;
     buf->data_size += strlen(stream->name);
     buf->data_size += strlen(ctx->log_group);
-    if (stream->sequence_token) {
+    if (stream->sequence_token)
+    {
         buf->data_size += strlen(stream->sequence_token);
     }
 }
 
 /* sorts events, constructs a put payload, and then sends */
 int send_log_events(struct flb_cloudwatch *ctx, struct cw_flush *buf,
-                    struct log_stream *stream) {
+                    struct log_stream *stream)
+{
     int ret;
     int offset;
     int i;
     struct event *event;
 
-    if (buf->event_index == 0) {
+    if (buf->event_index == 0)
+    {
         return 0;
     }
 
@@ -395,22 +437,28 @@ retry:
 
     offset = 0;
     ret = init_put_payload(ctx, buf, stream, &offset);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         flb_plg_error(ctx->ins, "Failed to initialize PutLogEvents payload");
         return -1;
     }
 
-    for (i = 0; i < buf->event_index; i++) {
+    for (i = 0; i < buf->event_index; i++)
+    {
         event = &buf->events[i];
         ret = write_event(ctx, buf, event, &offset);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             flb_plg_error(ctx->ins, "Failed to write log event %d to "
-                          "payload buffer", i);
+                                    "payload buffer",
+                          i);
             return -1;
         }
-        if (i != (buf->event_index - 1)) {
+        if (i != (buf->event_index - 1))
+        {
             if (!try_to_write(buf->out_buf, &offset, buf->out_buf_size,
-                              ",", 1)) {
+                              ",", 1))
+            {
                 flb_plg_error(ctx->ins, "Could not terminate log event with ','");
                 return -1;
             }
@@ -418,17 +466,21 @@ retry:
     }
 
     ret = end_put_payload(ctx, buf, &offset);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         flb_plg_error(ctx->ins, "Could not complete PutLogEvents payload");
         return -1;
     }
 
     flb_plg_debug(ctx->ins, "Sending %d events", i);
-    ret = put_log_events(ctx, buf, stream, (size_t) offset);
-    if (ret < 0) {
+    ret = put_log_events(ctx, buf, stream, (size_t)offset);
+    if (ret < 0)
+    {
         flb_plg_error(ctx->ins, "Failed to send log events");
         return -1;
-    } else if (ret > 0) {
+    }
+    else if (ret > 0)
+    {
         goto retry;
     }
 
@@ -449,18 +501,21 @@ int add_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     int retry_add = FLB_FALSE;
     int event_bytes = 0;
 
-    if (buf->event_index == 0) {
+    if (buf->event_index == 0)
+    {
         /* init */
         reset_flush_buf(ctx, buf, stream);
     }
 
     /* re-alloc event buffer if needed */
-    if ((buf->event_index + 1) >= buf->events_capacity) {
+    if ((buf->event_index + 1) >= buf->events_capacity)
+    {
         new_len = MAX_EVENTS_PER_PUT;
         size = sizeof(struct event) * new_len;
         flb_plg_debug(ctx->ins, "Increasing event buffer to %d", new_len);
         buf->events = flb_realloc(buf->events, size);
-        if (!buf->events) {
+        if (!buf->events)
+        {
             flb_errno();
             return -1;
         }
@@ -469,9 +524,12 @@ int add_event(struct flb_cloudwatch *ctx, struct cw_flush *buf,
 
 retry_add_event:
     ret = process_event(ctx, buf, obj, tms);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return -1;
-    } else if (ret > 0) {
+    }
+    else if (ret > 0)
+    {
         /* send logs and then retry the add */
         buf->event_index--;
         retry_add = FLB_TRUE;
@@ -481,21 +539,24 @@ retry_add_event:
     event = &buf->events[buf->event_index];
     event_bytes = event->len + PUT_LOG_EVENTS_PER_EVENT_LEN;
 
-    if (check_stream_time_span(stream, event) == FLB_FALSE) {
+    if (check_stream_time_span(stream, event) == FLB_FALSE)
+    {
         /* do not send this event */
         buf->event_index--;
         retry_add = FLB_TRUE;
         goto send;
     }
 
-    if ((buf->data_size + event_bytes) > PUT_LOG_EVENTS_PAYLOAD_SIZE) {
+    if ((buf->data_size + event_bytes) > PUT_LOG_EVENTS_PAYLOAD_SIZE)
+    {
         /* do not send this event */
         buf->event_index--;
         retry_add = FLB_TRUE;
         goto send;
     }
 
-    if (buf->event_index == MAX_EVENTS_PER_PUT) {
+    if (buf->event_index == MAX_EVENTS_PER_PUT)
+    {
         goto send;
     }
 
@@ -509,22 +570,165 @@ retry_add_event:
 send:
     ret = send_log_events(ctx, buf, stream);
     reset_flush_buf(ctx, buf, stream);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return -1;
     }
 
-    if (retry_add == FLB_TRUE) {
+    if (retry_add == FLB_TRUE)
+    {
         goto retry_add_event;
     }
 
     return 0;
 }
 
+int should_add_to_emf(struct flb_ir_metric *an_item)
+{
+    // Valid for cpu plugin
+    if (strncmp(an_item->key.via.str.ptr, "cpu_p", 4) == 0 || strncmp(an_item->key.via.str.ptr, "user_p", 6) == 0 || strncmp(an_item->key.via.str.ptr, "system_p", 8) == 0)
+    {
+        return 1;
+    }
+
+    // Valid for mem plugin
+    if (strncmp(an_item->key.via.str.ptr, "Mem.total", 9) == 0 || strncmp(an_item->key.via.str.ptr, "Mem.used", 8) == 0 || strncmp(an_item->key.via.str.ptr, "Mem.free", 8) == 0 || strncmp(an_item->key.via.str.ptr, "Swap.total", 10) == 0 || strncmp(an_item->key.via.str.ptr, "Swap.used", 9) == 0 || strncmp(an_item->key.via.str.ptr, "Swap.free", 9) == 0)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+struct msgpack_object pack_emf_payload(struct flb_cloudwatch *ctx, struct mk_list *flb_ir_metrics, const char *input_plugin, struct flb_time tms)
+{
+    struct mk_list *metric_temp;
+    struct mk_list *metric_head;
+
+    /* msgpack::sbuffer is a simple buffer implementation. */
+    msgpack_sbuffer sbuf_emf;
+    msgpack_sbuffer_init(&sbuf_emf);
+
+    /* Serialize values into the buffer using msgpack_sbuffer_write callback function. */
+    msgpack_packer packer_emf;
+    msgpack_packer_init(&packer_emf, &sbuf_emf, msgpack_sbuffer_write);
+    msgpack_pack_map(&packer_emf, (mk_list_size(flb_ir_metrics)) + 1);
+
+    //Pack the _aws map
+    msgpack_pack_str(&packer_emf, 4);
+    msgpack_pack_str_body(&packer_emf, "_aws", 4);
+
+    msgpack_pack_map(&packer_emf, 2);
+
+    msgpack_pack_str(&packer_emf, 9);
+    msgpack_pack_str_body(&packer_emf, "Timestamp", 9);
+    msgpack_pack_long_long(&packer_emf, tms.tm.tv_sec * 1000L);
+
+    msgpack_pack_str(&packer_emf, 17);
+    msgpack_pack_str_body(&packer_emf, "CloudWatchMetrics", 17);
+    msgpack_pack_array(&packer_emf, 1);
+
+    msgpack_pack_map(&packer_emf, 3);
+
+    msgpack_pack_str(&packer_emf, 9);
+    msgpack_pack_str_body(&packer_emf, "Namespace", 9);
+
+    if (ctx->metric_namespace)
+    {
+        msgpack_pack_str(&packer_emf, flb_sds_len(ctx->metric_namespace));
+        msgpack_pack_str_body(&packer_emf, ctx->metric_namespace, flb_sds_len(ctx->metric_namespace));
+    }
+    else
+    {
+        msgpack_pack_str(&packer_emf, 18);
+        msgpack_pack_str_body(&packer_emf, "fluent-bit-metrics", 18);
+    }
+
+    msgpack_pack_str(&packer_emf, 10);
+    msgpack_pack_str_body(&packer_emf, "Dimensions", 10);
+
+    struct mk_list *head;
+    struct flb_split_entry *dimension_list;
+    if (ctx->metric_dimensions)
+    {
+        msgpack_pack_array(&packer_emf, mk_list_size(ctx->metric_dimensions));
+        mk_list_foreach(head, ctx->metric_dimensions)
+        {
+            dimension_list = mk_list_entry(head, struct flb_split_entry, _head);
+            struct mk_list *csv_values = flb_utils_split(dimension_list->value, ',', 256);
+            msgpack_pack_array(&packer_emf, mk_list_size(csv_values));
+
+            struct flb_split_entry *entry;
+            struct mk_list *inner_head;
+            mk_list_foreach(inner_head, csv_values)
+            {
+                entry = mk_list_entry(inner_head, struct flb_split_entry, _head);
+                msgpack_pack_str(&packer_emf, strlen(entry->value));
+                msgpack_pack_str_body(&packer_emf, entry->value, strlen(entry->value));
+            }
+        }
+    }
+    else
+    {
+        msgpack_pack_array(&packer_emf, 0);
+    }
+
+    msgpack_pack_str(&packer_emf, 7);
+    msgpack_pack_str_body(&packer_emf, "Metrics", 7);
+
+    if (strcmp(input_plugin, "cpu") == 0)
+    {
+        msgpack_pack_array(&packer_emf, 3);
+    }
+    else if (strcmp(input_plugin, "mem") == 0)
+    {
+        msgpack_pack_array(&packer_emf, 6);
+    }
+    else
+    {
+        msgpack_pack_array(&packer_emf, 0);
+    }
+
+    mk_list_foreach_safe(metric_head, metric_temp, flb_ir_metrics)
+    {
+        struct flb_ir_metric *an_item = mk_list_entry(metric_head, struct flb_ir_metric, _head);
+        if (should_add_to_emf(an_item) == 1)
+        {
+            msgpack_pack_map(&packer_emf, 2);
+            msgpack_pack_str(&packer_emf, 4);
+            msgpack_pack_str_body(&packer_emf, "Name", 4);
+            msgpack_pack_object(&packer_emf, an_item->key);
+            msgpack_pack_str(&packer_emf, 4);
+            msgpack_pack_str_body(&packer_emf, "Unit", 4);
+            msgpack_pack_str(&packer_emf, strlen(an_item->metric_unit));
+            msgpack_pack_str_body(&packer_emf, an_item->metric_unit, strlen(an_item->metric_unit));
+        }
+    }
+
+    // Pack the metric vlaues for each record
+    mk_list_foreach_safe(metric_head, metric_temp, flb_ir_metrics)
+    {
+        struct flb_ir_metric *an_item = mk_list_entry(metric_head, struct flb_ir_metric, _head);
+        msgpack_pack_object(&packer_emf, an_item->key);
+        msgpack_pack_object(&packer_emf, an_item->value);
+    }
+
+    /* deserialize the buffer into msgpack_object instance. */
+    /* deserialized object is valid during the msgpack_zone instance alive. */
+    msgpack_zone mempool;
+    msgpack_zone_init(&mempool, 2048);
+
+    msgpack_object deserialized_emf_object;
+    msgpack_unpack(sbuf_emf.data, sbuf_emf.size, NULL, &mempool, &deserialized_emf_object);
+
+    return deserialized_emf_object;
+}
+
 /*
  * Main routine- processes msgpack and sends in batches
  * return value is the number of events processed
  */
-int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
+int process_and_send(struct flb_cloudwatch *ctx, const char *input_plugin, struct cw_flush *buf,
                      struct log_stream *stream,
                      const char *data, size_t bytes)
 {
@@ -532,12 +736,12 @@ int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     int i = 0;
     size_t map_size;
     msgpack_unpacked result;
-    msgpack_object  *obj;
-    msgpack_object  map;
+    msgpack_object *obj;
+    msgpack_object map;
     msgpack_object root;
     msgpack_object_kv *kv;
-    msgpack_object  key;
-    msgpack_object  val;
+    msgpack_object key;
+    msgpack_object val;
     char *key_str = NULL;
     size_t key_str_size = 0;
     int j;
@@ -546,15 +750,38 @@ int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     int found = FLB_FALSE;
     struct flb_time tms;
 
+    // Added for EMF support
+    struct flb_ir_metric *metric;
+
+    int ir_metric_type;
+    char *ir_metric_unit;
+    if (strncmp(input_plugin, "cpu", 3) == 0)
+    {
+        ir_metric_type = GAUGE;
+        ir_metric_unit = PERCENT;
+    }
+    else if (strncmp(input_plugin, "mem", 3) == 0)
+    {
+        ir_metric_type = GAUGE;
+        ir_metric_unit = BYTES;
+    }
+    else
+    {
+        printf("Incompatible metric input.\n");
+        return -1;
+    }
+
     /* unpack msgpack */
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS)
+    {
         /*
          * Each record is a msgpack array [timestamp, map] of the
          * timestamp and record map.
          */
         root = result.data;
-        if (root.via.array.size != 2) {
+        if (root.via.array.size != 2)
+        {
             continue;
         }
 
@@ -565,7 +792,8 @@ int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
         map = root.via.array.ptr[1];
         map_size = map.via.map.size;
 
-        if (ctx->log_key) {
+        if (ctx->log_key)
+        {
             key_str = NULL;
             key_str_size = 0;
             check = FLB_FALSE;
@@ -573,43 +801,80 @@ int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
 
             kv = map.via.map.ptr;
 
-            for(j=0; j < map_size; j++) {
-                key = (kv+j)->key;
-                if (key.type == MSGPACK_OBJECT_BIN) {
-                    key_str  = (char *) key.via.bin.ptr;
+            for (j = 0; j < map_size; j++)
+            {
+                key = (kv + j)->key;
+                if (key.type == MSGPACK_OBJECT_BIN)
+                {
+                    key_str = (char *)key.via.bin.ptr;
                     key_str_size = key.via.bin.size;
                     check = FLB_TRUE;
                 }
-                if (key.type == MSGPACK_OBJECT_STR) {
-                    key_str  = (char *) key.via.str.ptr;
+                if (key.type == MSGPACK_OBJECT_STR)
+                {
+                    key_str = (char *)key.via.str.ptr;
                     key_str_size = key.via.str.size;
                     check = FLB_TRUE;
                 }
 
-                if (check == FLB_TRUE) {
-                    if (strncmp(ctx->log_key, key_str, key_str_size) == 0) {
+                if (check == FLB_TRUE)
+                {
+                    if (strncmp(ctx->log_key, key_str, key_str_size) == 0)
+                    {
                         found = FLB_TRUE;
-                        val = (kv+j)->val;
+                        val = (kv + j)->val;
                         ret = add_event(ctx, buf, stream, &val, &tms);
-                        if (ret < 0 ) {
+                        if (ret < 0)
+                        {
                             goto error;
                         }
                     }
                 }
-
             }
-            if (found == FLB_FALSE) {
+            if (found == FLB_FALSE)
+            {
                 flb_plg_error(ctx->ins, "Could not find log_key '%s' in record",
                               ctx->log_key);
             }
-            else {
+            else
+            {
                 i++;
             }
             continue;
         }
 
-        ret = add_event(ctx, buf, stream, &map, &tms);
-        if (ret < 0 ) {
+        if (strncmp(input_plugin, "cpu", 3) == 0 || strncmp(input_plugin, "mem", 3) == 0)
+        {
+            // Added for EMF support: Construct a list
+            struct mk_list flb_ir_metrics;
+            mk_list_init(&flb_ir_metrics);
+
+            kv = map.via.map.ptr;
+
+            /* Iterate through the record map, extract intermediate metric data, and add to the list */
+            for (i = 0; i < map_size; i++)
+            {
+                metric = flb_malloc(sizeof(struct flb_ir_metric));
+                metric->key = (kv + i)->key;
+                metric->value = (kv + i)->val;
+                metric->metric_type = ir_metric_type;
+                metric->metric_unit = ir_metric_unit;
+                metric->timestamp = tms;
+
+                mk_list_add(&metric->_head, &flb_ir_metrics);
+            }
+
+            struct msgpack_object emf_payload = pack_emf_payload(ctx, &flb_ir_metrics, input_plugin, tms);
+            ret = add_event(ctx, buf, stream, &emf_payload, &tms);
+            flb_free(&flb_ir_metrics);
+        }
+        else
+        {
+            ret = add_event(ctx, buf, stream, &map, &tms);
+        }
+
+        if (ret < 0)
+        {
             goto error;
         }
         i++;
@@ -619,7 +884,8 @@ int process_and_send(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     /* send any remaining events */
     ret = send_log_events(ctx, buf, stream);
     reset_flush_buf(ctx, buf, stream);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return -1;
     }
 
@@ -630,7 +896,6 @@ error:
     msgpack_unpacked_destroy(&result);
     return -1;
 }
-
 
 struct log_stream *get_dynamic_log_stream(struct flb_cloudwatch *ctx,
                                           const char *tag, int tag_len)
@@ -644,13 +909,15 @@ struct log_stream *get_dynamic_log_stream(struct flb_cloudwatch *ctx,
     int ret;
 
     name = flb_sds_create(ctx->log_stream_prefix);
-    if (!name) {
+    if (!name)
+    {
         flb_errno();
         return NULL;
     }
 
     tmp_s = flb_sds_cat(name, tag, tag_len);
-    if (!tmp_s) {
+    if (!tmp_s)
+    {
         flb_errno();
         flb_sds_destroy(name);
         return NULL;
@@ -658,14 +925,19 @@ struct log_stream *get_dynamic_log_stream(struct flb_cloudwatch *ctx,
     name = tmp_s;
 
     /* check if the stream already exists */
-    mk_list_foreach_safe(head, tmp, &ctx->streams) {
+    mk_list_foreach_safe(head, tmp, &ctx->streams)
+    {
         stream = mk_list_entry(head, struct log_stream, _head);
-        if (strcmp(name, stream->name) == 0) {
+        if (strcmp(name, stream->name) == 0)
+        {
             flb_sds_destroy(name);
             return stream;
-        } else {
+        }
+        else
+        {
             /* check if stream is expired, if so, clean it up */
-            if (stream->expiration < time(NULL)) {
+            if (stream->expiration < time(NULL))
+            {
                 mk_list_del(&stream->_head);
                 log_stream_destroy(stream);
             }
@@ -674,7 +946,8 @@ struct log_stream *get_dynamic_log_stream(struct flb_cloudwatch *ctx,
 
     /* create the new stream */
     new_stream = flb_calloc(1, sizeof(struct log_stream));
-    if (!new_stream) {
+    if (!new_stream)
+    {
         flb_errno();
         flb_sds_destroy(name);
         return NULL;
@@ -682,7 +955,8 @@ struct log_stream *get_dynamic_log_stream(struct flb_cloudwatch *ctx,
     new_stream->name = name;
 
     ret = create_log_stream(ctx, new_stream);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         log_stream_destroy(new_stream);
         return NULL;
     }
@@ -698,11 +972,14 @@ struct log_stream *get_log_stream(struct flb_cloudwatch *ctx,
     struct log_stream *stream;
     int ret;
 
-    if (ctx->log_stream_name) {
+    if (ctx->log_stream_name)
+    {
         stream = &ctx->stream;
-        if (ctx->stream_created == FLB_FALSE) {
+        if (ctx->stream_created == FLB_FALSE)
+        {
             ret = create_log_stream(ctx, stream);
-            if (ret < 0) {
+            if (ret < 0)
+            {
                 return NULL;
             }
             stream->expiration = time(NULL) + FOUR_HOURS_IN_SECONDS;
@@ -711,7 +988,7 @@ struct log_stream *get_log_stream(struct flb_cloudwatch *ctx,
         return stream;
     }
 
-     return get_dynamic_log_stream(ctx, tag, tag_len);
+    return get_dynamic_log_stream(ctx, tag, tag_len);
 }
 
 int create_log_group(struct flb_cloudwatch *ctx)
@@ -725,7 +1002,8 @@ int create_log_group(struct flb_cloudwatch *ctx)
     flb_plg_info(ctx->ins, "Creating log group %s", ctx->log_group);
 
     body = flb_sds_create_size(25 + strlen(ctx->log_group));
-    if (!body) {
+    if (!body)
+    {
         flb_sds_destroy(body);
         flb_errno();
         return -1;
@@ -733,7 +1011,8 @@ int create_log_group(struct flb_cloudwatch *ctx)
 
     /* construct CreateLogGroup request body */
     tmp = flb_sds_printf(&body, "{\"logGroupName\":\"%s\"}", ctx->log_group);
-    if (!tmp) {
+    if (!tmp)
+    {
         flb_sds_destroy(body);
         flb_errno();
         return -1;
@@ -745,10 +1024,12 @@ int create_log_group(struct flb_cloudwatch *ctx)
                                           "/", body, strlen(body),
                                           &create_group_header, 1);
 
-    if (c) {
+    if (c)
+    {
         flb_plg_debug(ctx->ins, "CreateLogGroup http status=%d", c->resp.status);
 
-        if (c->resp.status == 200) {
+        if (c->resp.status == 200)
+        {
             /* success */
             flb_plg_info(ctx->ins, "Created log group %s", ctx->log_group);
             ctx->group_created = FLB_TRUE;
@@ -758,12 +1039,15 @@ int create_log_group(struct flb_cloudwatch *ctx)
         }
 
         /* Check error */
-        if (c->resp.payload_size > 0) {
+        if (c->resp.payload_size > 0)
+        {
             error = flb_aws_error(c->resp.payload, c->resp.payload_size);
-            if (error != NULL) {
-                if (strcmp(error, ERR_CODE_ALREADY_EXISTS) == 0) {
+            if (error != NULL)
+            {
+                if (strcmp(error, ERR_CODE_ALREADY_EXISTS) == 0)
+                {
                     flb_plg_info(ctx->ins, "Log Group %s already exists",
-                                  ctx->log_group);
+                                 ctx->log_group);
                     ctx->group_created = FLB_TRUE;
                     flb_sds_destroy(body);
                     flb_sds_destroy(error);
@@ -772,10 +1056,11 @@ int create_log_group(struct flb_cloudwatch *ctx)
                 }
                 /* some other error occurred; notify user */
                 flb_aws_print_error(c->resp.payload, c->resp.payload_size,
-                                        "CreateLogGroup", ctx->ins);
+                                    "CreateLogGroup", ctx->ins);
                 flb_sds_destroy(error);
             }
-            else {
+            else
+            {
                 /* error can not be parsed, print raw response to debug */
                 flb_plg_debug(ctx->ins, "Raw response: %s", c->resp.payload);
             }
@@ -783,7 +1068,8 @@ int create_log_group(struct flb_cloudwatch *ctx)
     }
 
     flb_plg_error(ctx->ins, "Failed to create log group");
-    if (c) {
+    if (c)
+    {
         flb_http_client_destroy(c);
     }
     flb_sds_destroy(body);
@@ -804,7 +1090,8 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
 
     body = flb_sds_create_size(50 + strlen(ctx->log_group) +
                                strlen(stream->name));
-    if (!body) {
+    if (!body)
+    {
         flb_sds_destroy(body);
         flb_errno();
         return -1;
@@ -815,7 +1102,8 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
                          "{\"logGroupName\":\"%s\",\"logStreamName\":\"%s\"}",
                          ctx->log_group,
                          stream->name);
-    if (!tmp) {
+    if (!tmp)
+    {
         flb_sds_destroy(body);
         flb_errno();
         return -1;
@@ -826,11 +1114,13 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
     c = cw_client->client_vtable->request(cw_client, FLB_HTTP_POST,
                                           "/", body, strlen(body),
                                           &create_stream_header, 1);
-    if (c) {
-        flb_plg_debug(ctx->ins,"CreateLogStream http status=%d",
+    if (c)
+    {
+        flb_plg_debug(ctx->ins, "CreateLogStream http status=%d",
                       c->resp.status);
 
-        if (c->resp.status == 200) {
+        if (c->resp.status == 200)
+        {
             /* success */
             flb_plg_info(ctx->ins, "Created log stream %s", stream->name);
             flb_sds_destroy(body);
@@ -839,10 +1129,13 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
         }
 
         /* Check error */
-        if (c->resp.payload_size > 0) {
+        if (c->resp.payload_size > 0)
+        {
             error = flb_aws_error(c->resp.payload, c->resp.payload_size);
-            if (error != NULL) {
-                if (strcmp(error, ERR_CODE_ALREADY_EXISTS) == 0) {
+            if (error != NULL)
+            {
+                if (strcmp(error, ERR_CODE_ALREADY_EXISTS) == 0)
+                {
                     flb_plg_info(ctx->ins, "Log Stream %s already exists",
                                  stream->name);
                     flb_sds_destroy(body);
@@ -855,7 +1148,8 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
                                     "CreateLogStream", ctx->ins);
                 flb_sds_destroy(error);
             }
-            else {
+            else
+            {
                 /* error can not be parsed, print raw response to debug */
                 flb_plg_debug(ctx->ins, "Raw response: %s", c->resp.payload);
             }
@@ -863,7 +1157,8 @@ int create_log_stream(struct flb_cloudwatch *ctx, struct log_stream *stream)
     }
 
     flb_plg_error(ctx->ins, "Failed to create log stream");
-    if (c) {
+    if (c)
+    {
         flb_http_client_destroy(c);
     }
     flb_sds_destroy(body);
@@ -889,8 +1184,9 @@ int put_log_events(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     /* stream is being used, update expiration */
     stream->expiration = time(NULL) + FOUR_HOURS_IN_SECONDS;
 
-    if (ctx->log_format != NULL) {
-        put_log_events_header[1].val = (char *) ctx->log_format;
+    if (ctx->log_format != NULL)
+    {
+        put_log_events_header[1].val = (char *)ctx->log_format;
         put_log_events_header[1].val_len = strlen(ctx->log_format);
         num_headers = 2;
     }
@@ -899,50 +1195,63 @@ int put_log_events(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     c = cw_client->client_vtable->request(cw_client, FLB_HTTP_POST,
                                           "/", buf->out_buf, payload_size,
                                           put_log_events_header, num_headers);
-    if (c) {
+    if (c)
+    {
         flb_plg_debug(ctx->ins, "PutLogEvents http status=%d", c->resp.status);
 
-        if (c->resp.status == 200) {
+        if (c->resp.status == 200)
+        {
             /* success */
             flb_plg_debug(ctx->ins, "Sent events to %s", stream->name);
-            if (c->resp.payload_size > 0) {
+            if (c->resp.payload_size > 0)
+            {
                 tmp = flb_json_get_val(c->resp.payload, c->resp.payload_size,
                                        "nextSequenceToken");
-                if (tmp) {
-                    if (stream->sequence_token != NULL) {
+                if (tmp)
+                {
+                    if (stream->sequence_token != NULL)
+                    {
                         flb_sds_destroy(stream->sequence_token);
                     }
                     stream->sequence_token = tmp;
                 }
-                else {
+                else
+                {
                     flb_plg_error(ctx->ins, "Could not find sequence token in "
-                                  "response: %s", c->resp.payload);
+                                            "response: %s",
+                                  c->resp.payload);
                 }
             }
-            else {
+            else
+            {
                 flb_plg_error(ctx->ins, "Could not find sequence token in "
-                              "response: response body is empty");
+                                        "response: response body is empty");
             }
             flb_http_client_destroy(c);
             return 0;
         }
 
         /* Check error */
-        if (c->resp.payload_size > 0) {
+        if (c->resp.payload_size > 0)
+        {
             error = flb_aws_error(c->resp.payload, c->resp.payload_size);
-            if (error != NULL) {
-                if (strcmp(error, ERR_CODE_INVALID_SEQUENCE_TOKEN) == 0) {
+            if (error != NULL)
+            {
+                if (strcmp(error, ERR_CODE_INVALID_SEQUENCE_TOKEN) == 0)
+                {
                     /*
                      * This case will happen when we do not know the correct
                      * sequence token; we can find it in the error response
                      * and retry.
                      */
                     flb_plg_debug(ctx->ins, "Sequence token was invalid, "
-                                  "will retry");
+                                            "will retry");
                     tmp = flb_json_get_val(c->resp.payload, c->resp.payload_size,
                                            "expectedSequenceToken");
-                    if (tmp) {
-                        if (stream->sequence_token != NULL) {
+                    if (tmp)
+                    {
+                        if (stream->sequence_token != NULL)
+                        {
                             flb_sds_destroy(stream->sequence_token);
                         }
                         stream->sequence_token = tmp;
@@ -957,7 +1266,8 @@ int put_log_events(struct flb_cloudwatch *ctx, struct cw_flush *buf,
                                     "PutLogEvents", ctx->ins);
                 flb_sds_destroy(error);
             }
-            else {
+            else
+            {
                 /* error could not be parsed, print raw response to debug */
                 flb_plg_debug(ctx->ins, "Raw response: %s", c->resp.payload);
             }
@@ -965,16 +1275,17 @@ int put_log_events(struct flb_cloudwatch *ctx, struct cw_flush *buf,
     }
 
     flb_plg_error(ctx->ins, "Failed to send log events");
-    if (c) {
+    if (c)
+    {
         flb_http_client_destroy(c);
     }
     return -1;
 }
 
-
 void cw_flush_destroy(struct cw_flush *buf)
 {
-    if (buf) {
+    if (buf)
+    {
         flb_free(buf->tmp_buf);
         flb_free(buf->out_buf);
         flb_free(buf->events);

@@ -95,6 +95,15 @@ struct flb_cloudwatch {
     /* if the log stream is dynamic, we'll use this */
     struct mk_list streams;
 
+    /* The namespace to use for the metric */
+    flb_sds_t metric_namespace;
+
+    /* Metric dimensions is a list of lsit. If you have only one list of 
+    dimensions, put the values as a comma seperated string. If you want to put
+    list of lists, use the list as semicolon seperated strings. If your value
+    is 'd1,d2;d3', we will consider it as [[d1, d2],[d3]]*/
+    struct mk_list *metric_dimensions;
+
     /* Plugin output instance reference */
     struct flb_output_instance *ins;
 };
