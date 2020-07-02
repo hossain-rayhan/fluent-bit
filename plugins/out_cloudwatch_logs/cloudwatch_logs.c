@@ -128,6 +128,20 @@ static int cb_cloudwatch_init(struct flb_output_instance *ins,
         goto error;
     }
 
+    tmp = flb_output_get_property("metric_namespace", ins);
+    if (tmp)
+    {
+        flb_plg_info(ctx->ins, "Metric Namespace=%s", tmp);
+        ctx->metric_namespace = flb_sds_create(tmp);
+    }
+
+    tmp = flb_output_get_property("metric_dimensions", ins);
+    if (tmp)
+    {
+        flb_plg_info(ctx->ins, "Metric Dimensions=%s", tmp);
+        ctx->metric_dimensions = flb_utils_split(tmp, ';', 256);
+    }
+
     ctx->create_group = FLB_FALSE;
     tmp = flb_output_get_property("auto_create_group", ins);
     /* native plugins use On/Off as bool, the old Go plugin used true/false */
@@ -351,7 +365,7 @@ static void cb_cloudwatch_flush(const void *data, size_t bytes,
     }
     buf->events_capacity = 1000;
 
-    event_count = process_and_send(ctx, buf, stream, data, bytes);
+    event_count = process_and_send(ctx, i_ins->p->name, buf, stream, data, bytes);
     if (event_count < 0) {
         flb_plg_error(ctx->ins, "Failed to send events");
         cw_flush_destroy(buf);
